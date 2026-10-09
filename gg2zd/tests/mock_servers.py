@@ -1,5 +1,5 @@
 """Local fake Confluence + Zendesk used to test gg2zd.py without network access."""
-import json, re, threading, urllib.parse
+import base64, json, re, threading, urllib.parse
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 CODE = ('<ac:structured-macro ac:name="code" ac:schema-version="1"><ac:parameter ac:name="language">{}</ac:parameter>'
@@ -15,6 +15,7 @@ PAGES = {
          + '<ac:structured-macro ac:name="toc" />'),
  "103": ("GG8-00099: Duplicate A", "<p>a</p>"), "104": ("GG8-00099: Duplicate B", "<p>b</p>"),
  "105": ("GG8-00018: Cluster Defragmentation", "<p>d</p>"),
+ "106": ("GG8-00020: Another Article", "<p>x</p>"),
 }
 CREATED = []
 EXISTING = [{"title": "GG8-00018: Cluster Defragmentation", "html_url": "http://zd/hc/articles/1-old"}]
@@ -24,8 +25,16 @@ class H(BaseHTTPRequestHandler):
     def _send(self, obj, code=200):
         b = json.dumps(obj).encode(); self.send_response(code); self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+    def _authorized(self):
+        try: return "bad" not in base64.b64decode(self.headers.get("Authorization", "Basic ")[6:]).decode()
+        except Exception: return False
     def do_GET(self):
         u = urllib.parse.urlsplit(self.path); q = urllib.parse.parse_qs(u.query)
+        if not self._authorized(): return self._send({"error": "Unauthorized"}, 401)
+        if u.path.endswith("/rest/api/space"): return self._send({"results": [{"key": "DEMO"}]})
+        if "/rest/api/space/" in u.path: return self._send({"key": "DEMO", "name": "Demo space"})
+        if re.search(r"/sections/\d+\.json$", u.path): return self._send({"section": {"id": 1, "name": "Knowledge Base"}})
+        if re.search(r"/permission_groups/\d+\.json$", u.path): return self._send({"permission_group": {"id": 2, "name": "Support agents"}})
         if u.path.endswith("/rest/api/content/search"):
             cql = q["cql"][0]; t = re.search(r'title [=~] "([^"]*)"', cql).group(1); exact = bool(re.search(r"title = ", cql))
             res = [{"id": i, "title": ti} for i, (ti, _) in PAGES.items() if (ti == t if exact else t.lower() in ti.lower())]
@@ -34,9 +43,13 @@ class H(BaseHTTPRequestHandler):
         if m and m.group(1) in PAGES:
             ti, body = PAGES[m.group(1)]
             return self._send({"id": m.group(1), "title": ti, "body": {"storage": {"value": body}}, "version": {"number": 3, "when": "2026-09-24"}})
+        if u.path.endswith("/categories.json"): return self._send({"categories": [{"id": 11, "name": "Knowledge Base"}], "next_page": None})
+        if u.path.endswith("/sections.json"): return self._send({"sections": [{"id": 360001, "name": "GridGain 8", "category_id": 11}, {"id": 360002, "name": "Drafts", "category_id": 11}], "next_page": None})
+        if u.path.endswith("/permission_groups.json"): return self._send({"permission_groups": [{"id": 777, "name": "Agents"}]})
         if "/sections/" in u.path and u.path.endswith("/articles"): return self._send({"articles": EXISTING, "next_page": None})
         self._send({"error": "not found"}, 404)
     def do_POST(self):
+        if not self._authorized(): return self._send({"error": "Unauthorized"}, 401)
         n = int(self.headers["Content-Length"]); d = json.loads(self.rfile.read(n))
         if d["article"]["title"].startswith("GG8-00003"):  # simulate a Zendesk failure
             return self._send({"error": "RecordInvalid"}, 422)
