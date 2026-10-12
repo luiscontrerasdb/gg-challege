@@ -1,4 +1,4 @@
-# gg2zd: migrate Confluence articles (GG8-xxxxx) to Zendesk Guide
+# gg2zd: migrate Confluence articles (GGx-xxxxx) to Zendesk Guide
 
 `gg2zd.py` reads knowledge articles from Confluence, converts them to Zendesk-ready HTML (original title and
 code-block colors kept) and creates them in Zendesk Guide as **drafts**, one by one, with a status report
